@@ -71,6 +71,37 @@ def classify(image):
     return result.classifications[0].categories
 
 
+def resolve_sub_label(sub_label_data, default_score):
+    """Return (common_name, score, scientific_name) for a usable sub_label.
+
+    sub_label is ["Common Name", score] or a plain string. It is only usable
+    when the common name resolves to a species in birdnames.db; anything else
+    returns None so callers can fall back to WAMF's own classifier.
+    """
+    if (
+        isinstance(sub_label_data, list)
+        and len(sub_label_data) >= 2
+        and sub_label_data[0]
+        and sub_label_data[1] is not None
+    ):
+        common_name = str(sub_label_data[0]).strip()
+        try:
+            label_score = float(sub_label_data[1])
+        except (TypeError, ValueError):
+            return None
+    elif isinstance(sub_label_data, str) and sub_label_data.strip():
+        common_name = sub_label_data.strip()
+        label_score = default_score
+    else:
+        return None
+
+    scientific_name = get_scientific_name(common_name)
+    if not scientific_name:
+        return None
+
+    return common_name, label_score, scientific_name
+
+
 def on_connect(client, userdata, flags, rc):
     if rc != 0:
         logger.warning("MQTT connection refused: %s", rc)
@@ -293,7 +324,7 @@ def _on_message_inner(client, userdata, message):
                 response = requests.get(
                     snapshot_url,
                     params=params,
-                    timeout=2
+                    timeout=config['frigate'].get('snapshot_timeout', 2)
                 )
 
             except requests.exceptions.RequestException as e:
@@ -379,10 +410,21 @@ def _on_message_inner(client, userdata, message):
 
                 logger.info("Classification result: %s", result_text)
 
+                # An upstream label (Frigate sub_label, or an external
+                # classifier publishing in the same format) can be preferred
+                # over WAMF's own model when classification.prefer_sub_label
+                # is true and the label resolves to a known species.
+                sub_label_preferred = (
+                    config['classification'].get('prefer_sub_label', False)
+                    and resolve_sub_label(after_data.get('sub_label'), score)
+                    is not None
+                )
+
                 # 964 = background
                 if (
                     index != 964
                     and score > config['classification']['threshold']
+                    and not sub_label_preferred
                 ):
 
                     common_name = (
@@ -553,52 +595,26 @@ def _on_message_inner(client, userdata, message):
 
                 else:
 
-                    sub_label_data = after_data.get(
-                        'sub_label'
+                    resolved = resolve_sub_label(
+                        after_data.get('sub_label'),
+                        score
                     )
 
-                    # sub_label is ["Common Name", score]
-                    # or a plain string
-
-                    if (
-                        isinstance(sub_label_data, list)
-                        and len(sub_label_data) >= 2
-                        and sub_label_data[1] is not None
-                    ):
-
-                        frigate_common = sub_label_data[0]
-
-                        frigate_score = float(
-                            sub_label_data[1]
-                        )
-
-                    elif (
-                        isinstance(sub_label_data, str)
-                        and sub_label_data
-                    ):
-
-                        frigate_common = sub_label_data
-
-                        frigate_score = score
-
-                    else:
-
-                        frigate_common = None
-                        frigate_score = None
+                    frigate_common, frigate_score, scientific_name = (
+                        resolved or (None, None, None)
+                    )
 
                     if frigate_common:
-
-                        scientific_name = get_scientific_name(
-                            frigate_common
-                        )
 
                         if scientific_name:
 
                             logger.info(
-                                "WAMF below threshold; using Frigate sub_label: "
-                                "%s (WAMF score: %.2f)",
+                                "Using sub_label: %s (%.2f); WAMF model said "
+                                "%s (%.2f)",
                                 frigate_common,
                                 frigate_score,
+                                display_name,
+                                score,
                             )
 
                             cursor = conn.cursor()
@@ -628,6 +644,16 @@ def _on_message_inner(client, userdata, message):
 
                             if result is None:
 
+                                wamf_snapshot_path = archive_snapshot(
+                                    frigate_url,
+                                    frigate_event
+                                )
+
+                                wamf_clip_path = archive_clip(
+                                    frigate_url,
+                                    frigate_event
+                                )
+
                                 cursor.execute(
                                     """
                                     INSERT INTO detections
@@ -638,9 +664,11 @@ def _on_message_inner(client, userdata, message):
                                         display_name,
                                         category_name,
                                         frigate_event,
-                                        camera_name
+                                        camera_name,
+                                        wamf_snapshot_path,
+                                        wamf_clip_path
                                     )
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     """,
                                     (
                                         formatted_start_time,
@@ -649,7 +677,9 @@ def _on_message_inner(client, userdata, message):
                                         scientific_name,
                                         'frigate_classified',
                                         frigate_event,
-                                        after_data['camera']
+                                        after_data['camera'],
+                                        wamf_snapshot_path,
+                                        wamf_clip_path
                                     )
                                 )
 

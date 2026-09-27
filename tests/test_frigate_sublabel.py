@@ -135,7 +135,8 @@ def test_get_scientific_name_truncated_ambiguous(names_db):
 def _run_on_message(fresh_db, wamf_score, sub_label=None, event_id='evt-fallback-001',
                     threshold=0.7, scientific_name_return='Turdus migratorius',
                     retained=False, topic='frigate/events', event_type='new',
-                    camera='birdcam', label='bird', deliveries=1):
+                    camera='birdcam', label='bird', deliveries=1,
+                    prefer_sub_label=None, snapshot_path=None, clip_path=None):
     """Run on_message with a mocked classifier result and optional Frigate sub_label."""
     speciesid.config = {
         'frigate': {
@@ -144,6 +145,8 @@ def _run_on_message(fresh_db, wamf_score, sub_label=None, event_id='evt-fallback
         },
         'classification': {'threshold': threshold},
     }
+    if prefer_sub_label is not None:
+        speciesid.config['classification']['prefer_sub_label'] = prefer_sub_label
 
     msg = MagicMock()
     msg.retain = retained
@@ -180,8 +183,8 @@ def _run_on_message(fresh_db, wamf_score, sub_label=None, event_id='evt-fallback
          patch('speciesid.classify', return_value=[fake_category]), \
          patch('speciesid.get_common_name', return_value='American Robin'), \
          patch('speciesid.get_scientific_name', return_value=scientific_name_return), \
-         patch('speciesid.archive_snapshot', return_value=None), \
-         patch('speciesid.archive_clip', return_value=None), \
+         patch('speciesid.archive_snapshot', return_value=snapshot_path), \
+         patch('speciesid.archive_clip', return_value=clip_path), \
          patch('speciesid.set_sublabel'), \
          patch('speciesid.publish_new_species') as mock_publish:
         mock_Image.open.return_value = mock_image
@@ -370,3 +373,82 @@ def test_repeated_live_event_does_not_duplicate_detection(fresh_db):
         assert conn.execute('SELECT COUNT(*) FROM detections').fetchone()[0] == 1
     publish.assert_called_once()
     bridge.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# prefer_sub_label and fallback media archiving
+# ---------------------------------------------------------------------------
+
+def _row(db, event_id='evt-fallback-001'):
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT category_name, score, display_name, wamf_snapshot_path, wamf_clip_path "
+        "FROM detections WHERE frigate_event = ?",
+        (event_id,),
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def test_prefer_sub_label_overrides_confident_wamf_result(fresh_db):
+    """prefer_sub_label=true: a resolvable sub_label wins even when WAMF is above threshold."""
+    _run_on_message(
+        fresh_db, wamf_score=0.92, sub_label=["Northern Cardinal", 0.9],
+        prefer_sub_label=True, scientific_name_return='Cardinalis cardinalis',
+    )
+    row = _row(fresh_db)
+    assert row is not None
+    assert row[0] == 'frigate_classified'
+    assert row[1] == pytest.approx(0.9)
+    assert row[2] == 'Cardinalis cardinalis'
+
+
+def test_prefer_sub_label_ignores_unresolvable_label(fresh_db):
+    """prefer_sub_label=true but the name is unknown: WAMF's confident result is kept."""
+    _run_on_message(
+        fresh_db, wamf_score=0.92, sub_label=["Not A Bird", 0.9],
+        prefer_sub_label=True, scientific_name_return=None,
+    )
+    row = _row(fresh_db)
+    assert row is not None
+    assert row[0] != 'frigate_classified'
+    assert row[2] == 'Turdus migratorius'
+
+
+def test_prefer_sub_label_off_keeps_default_behaviour(fresh_db):
+    """Default (unset) keeps upstream behaviour: confident WAMF result wins."""
+    _run_on_message(fresh_db, wamf_score=0.92, sub_label=["American Robin", 0.85])
+    assert _row(fresh_db)[0] != 'frigate_classified'
+
+
+def test_fallback_archives_snapshot_and_clip(fresh_db):
+    """sub_label detections keep their own copies of the media, like WAMF detections."""
+    _run_on_message(
+        fresh_db, wamf_score=0.13, sub_label=["American Robin", 0.85],
+        snapshot_path='/app/media/wamf/snapshots/evt-fallback-001.jpg',
+        clip_path='/app/media/wamf/clips/evt-fallback-001.mp4',
+    )
+    row = _row(fresh_db)
+    assert row[3] == '/app/media/wamf/snapshots/evt-fallback-001.jpg'
+    assert row[4] == '/app/media/wamf/clips/evt-fallback-001.mp4'
+
+
+@pytest.mark.parametrize('bad_label', [["", 0.9], ["Robin", "not-a-number"], [None, 0.9], "   "])
+def test_malformed_sub_label_is_ignored(fresh_db, bad_label):
+    """Malformed labels never raise and never write a sub_label row."""
+    _run_on_message(fresh_db, wamf_score=0.13, sub_label=bad_label)
+    assert _row(fresh_db) is None
+
+
+def test_get_scientific_name_case_insensitive(names_db):
+    """LLM labels often differ in case ("Blue jay"); they still resolve."""
+    with patch.object(queries, 'NAMEDBPATH', names_db):
+        assert queries.get_scientific_name("blue JAY") == "Cyanocitta cristata"
+
+
+def test_get_scientific_name_real_db_feeder_species():
+    """The shipped eBird taxonomy resolves the names an LLM is prompted to return."""
+    with patch.object(queries, 'NAMEDBPATH', 'birdnames.db'):
+        assert queries.get_scientific_name("Ruby-throated Hummingbird") == "Archilochus colubris"
+        assert queries.get_scientific_name("House finch") == "Haemorhous mexicanus"
+        assert queries.get_scientific_name("Downy Woodpecker") == "Dryobates pubescens"

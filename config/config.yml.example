@@ -9,6 +9,8 @@ frigate:
   mqtt_tls_insecure: false  # Optional, default: false. Don't verify broker certificate
   # mqtt_tls_ca_certs: /path/to/ca.crt  # Optional. Path to CA certificate file
   main_topic: frigate
+  # Seconds to wait for an event snapshot before giving up.
+  snapshot_timeout: 2
   camera:
     - your-camera-name
   object: bird
@@ -25,6 +27,9 @@ frigate:
 classification:
   model: model.tflite
   threshold: 0.7
+  # Use an upstream sub_label (Frigate, or an external classifier sending
+  # ["Common Name", score]) instead of WAMF's model when it names a known species.
+  prefer_sub_label: false
 bridge:
   enabled: false
   events_url: http://192.168.1.112:5000/api/events

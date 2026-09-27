@@ -30,6 +30,15 @@ def get_scientific_name(common_name):
     if result:
         conn.close()
         return result[0]
+    # Then case-insensitive, for labels such as "House finch"
+    cursor.execute(
+        "SELECT scientific_name FROM birdnames WHERE common_name = ? COLLATE NOCASE",
+        (common_name,)
+    )
+    rows = cursor.fetchall()
+    if len(rows) == 1:
+        conn.close()
+        return rows[0][0]
     # If string is exactly 20 chars it may be truncated — try prefix match
     if len(common_name) == 20:
         cursor.execute(

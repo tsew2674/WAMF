@@ -8,6 +8,8 @@ frigate:
   mqtt_use_tls: false
   mqtt_tls_insecure: false
   main_topic: frigate
+  # Seconds to wait for an event snapshot before giving up.
+  snapshot_timeout: 2
   camera:
     - <camera-name>
   object: bird
@@ -15,6 +17,9 @@ frigate:
 classification:
   model: model.tflite
   threshold: 0.7
+  # Use an upstream sub_label (Frigate, or an external classifier sending
+  # ["Common Name", score]) instead of WAMF's model when it names a known species.
+  prefer_sub_label: false
 
 bridge:
   enabled: false
