@@ -6,6 +6,8 @@
     <title>{% block title %}WAMF{% endblock %}</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+      integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+      crossorigin="anonymous"
       rel="stylesheet"
     />
     <link
@@ -61,12 +63,16 @@
         }
       })();
     </script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
+      integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK"
+      crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p"
+      crossorigin="anonymous"></script>
     {% block head_extra %}{% endblock %}
   </head>
   <body class="wamf-body">
-    <nav class="navbar navbar-expand-lg wamf-navbar">
+    <nav class="navbar navbar-expand-lg navbar-dark wamf-navbar">
       <div class="container-fluid">
         <a class="navbar-brand" href="/"
           ><img
@@ -158,14 +164,17 @@
 
         const withEmbed = (href) => {
           try {
-            const parsed = new URL(href, window.location.origin);
-            if (parsed.origin !== window.location.origin) {
+            const parsed = new URL(href, document.baseURI);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+              return null;
+            }
+            if (href.startsWith("#") || parsed.origin !== window.location.origin) {
               return href;
             }
             parsed.searchParams.set("embed", "ha");
             return parsed.pathname + parsed.search + parsed.hash;
           } catch (_err) {
-            return href;
+            return null;
           }
         };
 
@@ -173,14 +182,16 @@
           document.body.classList.add("ha-embed");
           document.querySelectorAll("a[href]").forEach((anchor) => {
             const href = anchor.getAttribute("href");
-            if (
-              !href ||
-              href.startsWith("javascript:") ||
-              href.startsWith("#")
-            ) {
+            if (!href) {
               return;
             }
-            anchor.setAttribute("href", withEmbed(href));
+            const destination = withEmbed(href);
+            if (destination === null) {
+              // Leaving an unsafe href intact would still allow native navigation.
+              anchor.removeAttribute("href");
+              return;
+            }
+            anchor.setAttribute("href", destination);
           });
         });
       })();

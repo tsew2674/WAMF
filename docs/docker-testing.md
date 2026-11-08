@@ -1,20 +1,41 @@
 # Docker installation and testing
 
-Run these commands from a WAMF checkout on the Docker host:
+For a local source build, run these commands from a WAMF checkout on the Docker host:
 
 ```bash
 docker compose -f docker-compose.yml.example up -d --build
 docker compose -f docker-compose.yml.example logs -f
 ```
 
-The example Compose file builds this checkout. `docker-compose.yml` uses its
-configured registry image; that image must include these packaging changes before
-it can provide the same behaviour.
+The example Compose file builds this checkout. For a registry installation, set
+the `wamf` service's `image` in your deployment's `docker-compose.yml` to the
+published `ghcr.io/wamf-project/wamf:0.4.3` image. The supplied registry Compose
+file uses `latest`, which the release publishing workflow does not update.
+Existing installations must first follow the stop and backup steps in
+[Upgrading v0.4.2 to v0.4.3](#upgrading-v042-to-v043).
 
-Open `http://<docker-host>:7767/login`. On first startup WAMF creates missing
-configuration and generates a session secret and temporary admin password using
-its existing bootstrap. The password is printed once to the container logs;
-sign in and change it. Valid existing credentials are preserved.
+```bash
+docker compose -f docker-compose.yml pull wamf
+docker compose -f docker-compose.yml up -d wamf
+docker compose -f docker-compose.yml logs -f wamf
+```
+
+On first startup WAMF creates missing configuration and prints a private
+`/setup#token=...` link once to the container logs. Open it within 15 minutes,
+choose a password, then use the normal login page. Operational workers remain
+paused until administrator setup succeeds. Valid existing credentials are preserved.
+Restarting before completion replaces the link; old links stop working.
+
+Set the optional `webui.public_base_url` to the external origin, such as
+`https://wamf.example`, to print a directly usable link. Otherwise replace the
+printed loopback host and port with the Docker host and published port. Remote
+password setup requires HTTPS or a trusted tunnel. Protect the startup log and
+disable proxy request-body logging for setup. The page requires JavaScript and
+does not put its token in HTTP request URLs or browser storage.
+
+Mount a writable configuration directory, as in the Compose examples. Read-only
+configuration and single-file config mounts cannot support atomic replacement;
+WAMF fails safely without falling back to an in-place write.
 
 Incomplete Frigate/MQTT settings start the Admin UI in setup mode without the
 detection worker. Use Configuration to enter the Frigate URL, MQTT host/topic,
@@ -55,6 +76,72 @@ UID, give that user write access to the three mounted directories first.
 
 ## Existing Docker installations
 
+### Upgrading v0.4.2 to v0.4.3
+
+Stop WAMF cleanly and back up configuration, database and media together. Retain
+the previous image for rollback, and preserve mounts, ports, credentials and
+the session-secret environment setting. No data-format migration is introduced.
+
+The example Compose file builds the current checkout as `wamf:0.4.3`. The
+registry image `ghcr.io/wamf-project/wamf:0.4.3` is published. After stopping and
+backing up the installation, set your registry deployment's `wamf` service image
+to that explicit version, then pull and recreate the service:
+
+```bash
+docker compose -f docker-compose.yml pull wamf
+docker compose -f docker-compose.yml up -d --force-recreate wamf
+```
+
+Use your existing deployment's Compose file and environment settings if they
+differ from these examples. The supplied `docker-compose.yml` uses `latest`;
+the release publishing workflow does not update that tag.
+
+After upgrading, verify internal links, date selection, browser back/forward,
+Home Assistant embed navigation, login, media access, MQTT detection and restart
+persistence. See [v0.4.3 release notes](release-0.4.3.md) for retained security
+risks and validation scope. Earlier upgrade instructions remain below.
+
+<a id="upgrading-v040-to-v041"></a>
+
+### Historical upgrade from v0.4.0 to v0.4.1
+
+For a deliberate v0.4.1 deployment, stop WAMF cleanly, back up configuration,
+database and media together, and retain the previous image for rollback. Use the
+v0.4.1 image or build from the immutable `v0.4.1` source tag, preserving mounts,
+ports, credentials and the session-secret environment setting. No data-format
+migration is required for the validated paths. Check login, API access, media,
+MQTT detection and restart persistence. See the
+[v0.4.1 credential compatibility and upgrade record](release-0.4.1.md#credential-compatibility-and-upgrade)
+for historical validation and recovery limitations. This section retains the
+original link anchor; v0.4.3 is the current stable release.
+
+### Upgrading v0.4.0 or v0.4.1 to v0.4.2
+
+Stop WAMF cleanly and back up the complete configuration, database and media
+directories together before upgrading. Keep the existing image available for
+rollback. Recreate the container with the v0.4.2 image and the same mounts,
+configuration, port mapping and `WAMF_SECRET_KEY` environment value, if used.
+For deliberate v0.4.2 recovery, use the published
+`ghcr.io/wamf-project/wamf:0.4.2` image or build from the immutable `v0.4.2` source
+tag using its Compose example. Building the current `main` checkout does not
+reproduce v0.4.2.
+
+No configuration, database or media migration is required for existing v0.4.0
+or v0.4.1 installations with valid credentials. Preserve
+any additional `/data` or `/media` compatibility mounts already in use. Existing
+credentials are verified without automatic rehashing, including supported legacy
+Werkzeug formats. Malformed or unsupported configured hashes stop startup with a
+configuration error and are never replaced automatically. Only a genuinely
+unconfigured installation receives the private first-run setup link.
+
+After upgrading, check login, API access, archived media, MQTT detection and
+restart persistence. To roll back, stop the upgraded container cleanly and recreate the
+previous container using the same mounts and session-secret environment value.
+Avoid simultaneous writers to the database.
+See [v0.4.2 release notes](release-0.4.2.md) for validation and security limitations.
+
+### Older path conventions
+
 Back up existing configuration, database, and media before changing the mounts.
 Older Docker config examples used `/data/speciesid.db` and `/media/wamf/...`.
 Update those settings to `./data/speciesid.db`, `./media/wamf/snapshots`, and
@@ -70,7 +157,9 @@ for that installation. A fresh installation needs only the supplied mounts.
 
 - Build succeeds and `docker compose -f docker-compose.yml.example ps` shows WAMF running.
 - Starting with an empty config directory creates the example and configuration,
-  prints a temporary password, and serves the setup/admin UI on port 7767.
+  prints a single-use setup link, and serves the setup page on port 7767.
+- Before password setup, operational workers remain paused; successful setup
+  starts them automatically when Frigate configuration is already complete.
 - Login, password changes, config saves/backups, and Admin Restart work.
 - After configuration, logs report `MQTT event subscription ready`; the first
   qualifying live bird event is classified and appears in the UI.
