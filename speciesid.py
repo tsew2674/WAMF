@@ -113,10 +113,21 @@ def get_tracked_labels(cfg):
 
     These are animal types (squirrel, cat, rabbit, etc.) that an upstream
     source has already identified; WAMF records them directly instead of
-    running its bird-only classifier against them.
+    running its bird-only classifier against them. `tracked_labels: "*"`
+    tracks every non-bird label instead of a fixed list.
     """
-    labels = cfg['frigate'].get('tracked_labels') or []
+    value = cfg['frigate'].get('tracked_labels')
+    if isinstance(value, str):
+        return {'*'} if value.strip() == '*' else set()
+    labels = value or []
     return {str(label).strip().lower() for label in labels if str(label).strip()}
+
+
+def label_is_tracked(event_label, tracked_labels):
+    normalized = str(event_label).strip().lower()
+    if not normalized:
+        return False
+    return '*' in tracked_labels or normalized in tracked_labels
 
 
 def handle_tracked_label_detection(client, conn, after_data, frigate_url, label):
@@ -898,7 +909,7 @@ def _on_message_inner(client, userdata, message):
 
         elif (
             after_data['camera'] in config['frigate']['camera']
-            and str(event_label).strip().lower() in get_tracked_labels(config)
+            and label_is_tracked(event_label, get_tracked_labels(config))
         ):
 
             handle_tracked_label_detection(

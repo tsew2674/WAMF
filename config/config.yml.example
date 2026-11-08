@@ -17,7 +17,9 @@ frigate:
   # Other object labels (e.g. from a Home Assistant/Reolink automation, or
   # Frigate's own generic object detector) to log directly using the label
   # already assigned, without running WAMF's bird-species classifier on them.
-  # Case-insensitive. Example: [squirrel, cat, rabbit, skunk]
+  # Case-insensitive. Example: [squirrel, cat, rabbit, skunk, opossum, deer]
+  # Use "*" instead of a list to track every non-bird label, rather than
+  # maintaining one by hand.
   tracked_labels: []
 # MQTT topics published by whosatmyfeeder:
 #   whosatmyfeeder/detections              - common name on every detection above threshold

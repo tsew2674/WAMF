@@ -63,7 +63,9 @@ def _run_on_message(fresh_db, label, event_id='evt-tracked-001', tracked_labels=
         'frigate': {
             'camera': [camera],
             'frigate_url': 'http://localhost:5000',
-            'tracked_labels': list(tracked_labels),
+            'tracked_labels': (
+                tracked_labels if isinstance(tracked_labels, str) else list(tracked_labels)
+            ),
         },
         'classification': {'threshold': 0.7},
     }
@@ -133,6 +135,35 @@ def test_tracked_label_is_case_insensitive(fresh_db):
 def test_untracked_label_ignored(fresh_db):
     """A label that is neither 'bird' nor in tracked_labels is ignored entirely."""
     _run_on_message(fresh_db, label='raccoon', tracked_labels=('squirrel',))
+
+    conn = sqlite3.connect(fresh_db)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM detections")
+    count = cursor.fetchone()[0]
+    conn.close()
+
+    assert count == 0
+
+
+def test_wildcard_tracks_any_non_bird_label(fresh_db):
+    """tracked_labels: "*" accepts any label without a fixed list."""
+    _run_on_message(fresh_db, label='opossum', tracked_labels='*')
+
+    conn = sqlite3.connect(fresh_db)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT display_name FROM detections WHERE frigate_event = 'evt-tracked-001'"
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert row[0] == 'Opossum'
+
+
+def test_wildcard_does_not_match_empty_label(fresh_db):
+    """An empty/missing label is never tracked, even under the wildcard."""
+    _run_on_message(fresh_db, label='', tracked_labels='*')
 
     conn = sqlite3.connect(fresh_db)
     cursor = conn.cursor()

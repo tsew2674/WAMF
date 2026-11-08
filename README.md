@@ -260,7 +260,8 @@ frigate:
   # Other object labels already identified upstream (e.g. by a Home
   # Assistant/Reolink automation, or Frigate's own object detector) to log
   # directly, without running WAMF's bird-species classifier on them.
-  tracked_labels: []  # e.g. [squirrel, cat, rabbit, skunk]
+  # Use "*" to track every non-bird label instead of a fixed list.
+  tracked_labels: []  # e.g. [squirrel, cat, rabbit, skunk, opossum, deer]
 
 classification:
   model: model.tflite
