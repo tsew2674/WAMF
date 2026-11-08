@@ -1,12 +1,16 @@
 #  WAMF (Wildlife Activity Monitoring Framework)
 
-> A wildlife observatory platform built around Frigate NVR, bird species identification, feeder activity analytics, and live wildlife monitoring.
+> A wildlife observatory platform built around Frigate NVR (with Reolink camera support in progress), bird species identification, feeder activity analytics, and live wildlife monitoring.
 
 ---
 
 ## Project Background
 
-WAMF is a fork of:
+This repository is a personal fork of:
+
+- https://github.com/WAMF-Project/WAMF
+
+WAMF itself is a fork of:
 
 - https://github.com/k1n6b0b/whosatmyfeeder
 
@@ -27,6 +31,9 @@ This fork has evolved beyond the original sidecar classifier concept and is now 
 - Behaviour tracking
 
 while remaining compatible with the original Frigate-based bird detection workflow.
+
+This personal fork additionally adapts WAMF to work with Reolink cameras
+directly, alongside the existing Frigate-based workflow.
 
 ---
 
@@ -430,6 +437,7 @@ This allows rapid UI and analytics development without requiring a live Frigate 
 
 ## Planned and experimental observatory features include:
 
+- Direct Reolink camera integration, as an alternative to Frigate
 - Real-time Frigate event streaming
 - Species heatmaps
 - Dawn/dusk activity overlays
@@ -443,6 +451,10 @@ This allows rapid UI and analytics development without requiring a live Frigate 
 
 # Attribution
 
+Forked from:
+
+https://github.com/WAMF-Project/WAMF
+
 Original project:
 
 https://github.com/mmcc-xx/WhosAtMyFeeder
@@ -451,7 +463,7 @@ Intermediate fork:
 
 https://github.com/k1n6b0b/whosatmyfeeder
 
-This repository continues to build upon both projects while evolving toward a broader wildlife observatory platform.
+This repository continues to build upon all three projects while evolving toward a broader wildlife observatory platform, including Reolink camera support alongside Frigate.
 
 ## License
 
