@@ -79,6 +79,27 @@
   filter: brightness(1.25) contrast(1.1);
 }
 
+/* Bootstrap's default navbar-dark toggler is a ~55%-opacity icon with a
+   barely-visible border; against wamf-navbar's near-black background it's
+   hard to spot on mobile. Give it a visible button box and a near-solid
+   icon instead. */
+.wamf-navbar .navbar-toggler {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+}
+
+.wamf-navbar .navbar-toggler:hover,
+.wamf-navbar .navbar-toggler:focus {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.wamf-navbar .navbar-toggler-icon {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba(255, 255, 255, 0.95)' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
 .wamf-container {
   padding-bottom: 12px;
 }

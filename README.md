@@ -1,6 +1,6 @@
 #  WAMF (Wildlife Activity Monitoring Framework)
 
-> A wildlife observatory platform built around Frigate NVR (with Reolink camera support in progress), bird species identification, feeder activity analytics, and live wildlife monitoring.
+> A wildlife observatory platform built around Frigate NVR, bird species identification, feeder activity analytics, and live wildlife monitoring — with Reolink (and other non-Frigate) cameras supported via a Home Assistant automation and an HTTP shim.
 
 ---
 
@@ -32,8 +32,12 @@ This fork has evolved beyond the original sidecar classifier concept and is now 
 
 while remaining compatible with the original Frigate-based bird detection workflow.
 
-This personal fork additionally adapts WAMF to work with Reolink cameras
-directly, alongside the existing Frigate-based workflow.
+This personal fork additionally adapts WAMF to work with Reolink cameras,
+alongside the existing Frigate-based workflow, by having an external
+automation (not WAMF itself) speak Frigate's event shape on WAMF's behalf —
+see Non-Frigate Camera Sources below — plus a `tracked_labels` config option
+so non-bird animal types identified upstream (squirrel, deer, opossum, etc.)
+get logged without running WAMF's bird-only classifier on them.
 
 ---
 
@@ -47,6 +51,8 @@ directly, alongside the existing Frigate-based workflow.
 - Frigate sub-label support
 - Confidence scoring
 - Species taxonomy lookup database
+- Tracking of non-bird animal types (squirrels, cats, rabbits, skunks, etc.)
+  already identified upstream, e.g. by a Home Assistant automation
 
 ## Observatory UI
 
@@ -121,6 +127,9 @@ Flask Observatory UI
 - Development thumbnail support
 - Fake detection seeding workflows (For development only)
 - Refactored analytics and summary views
+- Non-Frigate camera sources (e.g. Reolink via Home Assistant) via a Frigate-API shim
+- `tracked_labels`: logging of non-bird animal types identified upstream, without
+  running WAMF's bird classifier on them
 
 ---
 
@@ -203,6 +212,68 @@ cameras:
 
 ---
 
+# Non-Frigate Camera Sources (e.g. Reolink via Home Assistant)
+
+WAMF has no native Reolink (or other non-Frigate) integration — it only ever
+speaks Frigate's MQTT event shape and HTTP event API. Battery/wire-free cameras
+in particular (Reolink's included) generally don't run well as a Frigate
+detect/record source, so the practical way to get them into WAMF is to make
+them *look like* Frigate from WAMF's point of view, using whatever already
+does object/species identification for that camera (a Home Assistant
+automation calling an LLM vision model, for example). WAMF's code requires no
+changes for this; only two things need to exist:
+
+1. **An MQTT publisher** that emits Frigate-shaped `new` events on WAMF's
+   configured `main_topic`:
+   ```json
+   {
+     "type": "new",
+     "after": {
+       "id": "<unique-event-id>",
+       "camera": "<a camera name listed under frigate.camera>",
+       "label": "bird",
+       "start_time": 1700000000.0,
+       "sub_label": ["Northern Cardinal", 0.9]
+     }
+   }
+   ```
+   - `label: "bird"` (or whatever `frigate.object` is set to) runs WAMF's own
+     classifier on the snapshot, unless `sub_label` is present and
+     `classification.prefer_sub_label` is enabled, in which case WAMF trusts
+     `sub_label`'s `[common_name, score]` instead of classifying — useful when
+     an LLM vision step has already named the species. Omit `sub_label`
+     entirely to let WAMF's model try.
+   - Any other label matching `frigate.tracked_labels` (see Configuration
+     below) is logged directly under that label — squirrel, deer, opossum,
+     whatever you've configured — without WAMF attempting classification at
+     all. This is the right choice for non-bird animal types, since WAMF's
+     classifier is bird-species-only.
+   - `id` is WAMF's de-dupe key (replaying the same `id` won't create a
+     duplicate row) and also the basename WAMF expects for snapshot/clip
+     files at the shim below.
+
+2. **An HTTP shim** standing in for Frigate's API, exposing just enough of it
+   for WAMF to fetch what it needs:
+   - `GET /api/version` → any 200 response (WAMF's health check only cares
+     that it gets one).
+   - `GET /api/events/<id>/snapshot.jpg` and `GET /api/events/<id>/clip.mp4`
+     → the still image and clip for that event, however your automation
+     actually saved them (e.g. proxying to a Home Assistant `/local/...`
+     path).
+   - `POST /api/events/<id>/sub_label` → can just return 200; WAMF writes the
+     identified species back here, but nothing on WAMF's side depends on it
+     succeeding.
+
+   A small nginx container with a couple of `location` blocks is enough for
+   this. Point `frigate.frigate_url` at the shim and `frigate.main_topic` at
+   the MQTT topic your automation publishes to.
+
+Because `frigate_url` and `main_topic` are both singular per WAMF instance,
+a camera source set up this way is effectively a dedicated WAMF instance —
+run a second instance alongside a real Frigate-backed one if you want both.
+
+---
+
 # Setup
 
 ## Directory Structure
@@ -254,6 +325,12 @@ frigate:
     - birdcam
 
   object: bird
+
+  # Other object labels already identified upstream (e.g. by a Home
+  # Assistant/Reolink automation, or Frigate's own object detector) to log
+  # directly, without running WAMF's bird-species classifier on them.
+  # Use "*" to track every non-bird label instead of a fixed list.
+  tracked_labels: []  # e.g. [squirrel, cat, rabbit, skunk, opossum, deer]
 
 classification:
   model: model.tflite
@@ -437,7 +514,9 @@ This allows rapid UI and analytics development without requiring a live Frigate 
 
 ## Planned and experimental observatory features include:
 
-- Direct Reolink camera integration, as an alternative to Frigate
+- Native Reolink support (today it's done via a Home Assistant automation
+  and an HTTP shim — see Non-Frigate Camera Sources above — not built into
+  WAMF itself)
 - Real-time Frigate event streaming
 - Species heatmaps
 - Dawn/dusk activity overlays

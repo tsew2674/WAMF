@@ -108,6 +108,136 @@ def resolve_sub_label(sub_label_data, default_score):
     return common_name, label_score, scientific_name
 
 
+def get_tracked_labels(cfg):
+    """Return the configured non-bird Frigate/HA object labels, lowercased.
+
+    These are animal types (squirrel, cat, rabbit, etc.) that an upstream
+    source has already identified; WAMF records them directly instead of
+    running its bird-only classifier against them. `tracked_labels: "*"`
+    tracks every non-bird label instead of a fixed list.
+    """
+    value = cfg['frigate'].get('tracked_labels')
+    if isinstance(value, str):
+        return {'*'} if value.strip() == '*' else set()
+    labels = value or []
+    return {str(label).strip().lower() for label in labels if str(label).strip()}
+
+
+def label_is_tracked(event_label, tracked_labels):
+    normalized = str(event_label).strip().lower()
+    if not normalized:
+        return False
+    return '*' in tracked_labels or normalized in tracked_labels
+
+
+def handle_tracked_label_detection(client, conn, after_data, frigate_url, label):
+    """Record a detection for an animal type identified upstream (e.g. by a
+    Home Assistant automation), skipping WAMF's bird-species classifier.
+    """
+    frigate_event = after_data.get('id')
+    if not is_valid_frigate_event(frigate_event):
+        logger.warning('Ignoring detection with invalid Frigate event identifier')
+        return
+
+    common_name = str(label).strip().title()
+
+    start_time = datetime.fromtimestamp(after_data['start_time'])
+    formatted_start_time = start_time.strftime("%Y-%m-%d %H:%M:%S")
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM detections WHERE frigate_event = ?",
+        (frigate_event,)
+    )
+
+    if cursor.fetchone() is not None:
+        logger.info("Record already exists for event %s. Skipping.", frigate_event)
+        return
+
+    logger.info(
+        "No record yet for event %s. Storing as tracked label '%s'.",
+        frigate_event,
+        common_name,
+    )
+
+    wamf_snapshot_path = archive_snapshot(frigate_url, frigate_event)
+
+    if wamf_snapshot_path is None:
+        logger.warning(
+            "Skipping tracked-label detection %s: no snapshot available",
+            frigate_event,
+        )
+        return
+
+    wamf_clip_path = archive_clip(frigate_url, frigate_event)
+
+    cursor.execute(
+        """
+        INSERT INTO detections
+        (
+            detection_time,
+            detection_index,
+            score,
+            display_name,
+            category_name,
+            frigate_event,
+            camera_name,
+            wamf_snapshot_path,
+            wamf_clip_path
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            formatted_start_time,
+            -1,
+            1.0,
+            common_name,
+            'external_label',
+            frigate_event,
+            after_data['camera'],
+            wamf_snapshot_path,
+            wamf_clip_path,
+        )
+    )
+
+    client.publish(
+        'whosatmyfeeder/detections',
+        common_name,
+        qos=0,
+        retain=False
+    )
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM detections WHERE display_name = ?",
+        (common_name,)
+    )
+
+    if cursor.fetchone()[0] == 1:
+
+        logger.info(
+            "New tracked animal type detected for the first time: %s",
+            common_name,
+        )
+
+        publish_new_species(
+            client,
+            common_name,
+            common_name,
+            1.0,
+            after_data['camera'],
+            frigate_event
+        )
+
+    commit_detection(conn, {
+        'common_name': common_name,
+        'scientific_name': common_name,
+        'confidence': 1.0,
+        'camera': after_data.get('camera'),
+        'frigate_event': frigate_event,
+    })
+
+
 def on_connect(client, userdata, flags, rc):
     if rc != 0:
         logger.warning("MQTT connection refused: %s", rc)
@@ -305,9 +435,12 @@ def _on_message_inner(client, userdata, message):
             {}
         )
 
+        bird_object = config['frigate'].get('object', 'bird')
+        event_label = after_data.get('label', '')
+
         if (
             after_data['camera'] in config['frigate']['camera']
-            and after_data['label'] == 'bird'
+            and event_label == bird_object
         ):
 
             frigate_event = after_data.get('id')
@@ -773,6 +906,19 @@ def _on_message_inner(client, userdata, message):
                     "Could not retrieve image. Status code: %s",
                     response.status_code,
                 )
+
+        elif (
+            after_data['camera'] in config['frigate']['camera']
+            and label_is_tracked(event_label, get_tracked_labels(config))
+        ):
+
+            handle_tracked_label_detection(
+                client,
+                conn,
+                after_data,
+                config['frigate']['frigate_url'],
+                event_label,
+            )
 
     finally:
         conn.close()
