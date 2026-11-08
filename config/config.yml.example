@@ -14,6 +14,11 @@ frigate:
   camera:
     - your-camera-name
   object: bird
+  # Other object labels (e.g. from a Home Assistant/Reolink automation, or
+  # Frigate's own generic object detector) to log directly using the label
+  # already assigned, without running WAMF's bird-species classifier on them.
+  # Case-insensitive. Example: [squirrel, cat, rabbit, skunk]
+  tracked_labels: []
 # MQTT topics published by whosatmyfeeder:
 #   whosatmyfeeder/detections              - common name on every detection above threshold
 #   whosatmyfeeder/new_species/common_name     \

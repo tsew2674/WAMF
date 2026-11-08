@@ -47,6 +47,8 @@ directly, alongside the existing Frigate-based workflow.
 - Frigate sub-label support
 - Confidence scoring
 - Species taxonomy lookup database
+- Tracking of non-bird animal types (squirrels, cats, rabbits, skunks, etc.)
+  already identified upstream, e.g. by a Home Assistant automation
 
 ## Observatory UI
 
@@ -254,6 +256,11 @@ frigate:
     - birdcam
 
   object: bird
+
+  # Other object labels already identified upstream (e.g. by a Home
+  # Assistant/Reolink automation, or Frigate's own object detector) to log
+  # directly, without running WAMF's bird-species classifier on them.
+  tracked_labels: []  # e.g. [squirrel, cat, rabbit, skunk]
 
 classification:
   model: model.tflite
