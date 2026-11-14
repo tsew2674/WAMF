@@ -130,6 +130,14 @@
             </li>
             <li class="nav-item">
               <a
+                class="nav-link wamf-nav-btn {% if request.endpoint == 'public.history' %}active{% endif %}"
+                href="{{ url_for('public.history') }}"
+              >
+                History
+              </a>
+            </li>
+            <li class="nav-item">
+              <a
                 class="nav-link wamf-nav-btn {% if request.endpoint == 'public.live_view' %}active{% endif %}"
                 href="{{ url_for('public.live_view') }}"
               >

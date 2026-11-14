@@ -1172,3 +1172,231 @@ body {
 .admin-form .login-label {
   margin-top: 1rem;
 }
+
+/* History page */
+.wamf-history-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.wamf-history-header .wamf-heading {
+  margin: 0;
+}
+
+.wamf-range-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wamf-range-chip {
+  background: #17212f;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #f5f7fa;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  text-decoration: none;
+}
+
+.wamf-range-chip:hover {
+  background: #1f2c3f;
+  color: #ffffff;
+}
+
+.wamf-range-chip.active {
+  background: #03a9f4;
+  border-color: #03a9f4;
+  color: #ffffff;
+}
+
+.wamf-history-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.wamf-history-empty {
+  margin: 18px 0 0;
+  color: #a8b3c7;
+}
+
+.wamf-history-chart {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.wamf-history-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  height: 200px;
+  color: #8fa3bf;
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.wamf-history-bars {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: clamp(2px, 0.5vw, 6px);
+  padding: 0 18px;
+}
+
+/* One continuous baseline under the bars, at the bottom of the tracks. */
+.wamf-history-bars::before {
+  content: "";
+  position: absolute;
+  top: 200px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.wamf-history-bar-group {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+}
+
+.wamf-history-bar-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 200px;
+}
+
+.wamf-history-bar {
+  display: block;
+  width: 100%;
+  max-width: 44px;
+  min-height: 3px;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(
+    to top,
+    rgba(79, 195, 247, 0.28),
+    rgba(79, 195, 247, 0.9)
+  );
+}
+
+.wamf-history-bar.is-empty {
+  min-height: 0;
+}
+
+a.wamf-history-bar-group:hover .wamf-history-bar,
+a.wamf-history-bar-group:focus-visible .wamf-history-bar {
+  filter: brightness(1.3);
+}
+
+/* Labels are wider than narrow bars; centring a flex item lets it overflow
+   evenly to both sides instead of only to the right. */
+.wamf-history-label {
+  display: flex;
+  justify-content: center;
+  height: 1.2rem;
+  margin-top: 8px;
+  color: #8fa3bf;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.wamf-leaderboard {
+  display: grid;
+  gap: 14px;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.wamf-leaderboard-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.wamf-leaderboard-rank {
+  flex: 0 0 2rem;
+  color: #8fa3bf;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.wamf-leaderboard-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wamf-leaderboard-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wamf-leaderboard-name {
+  color: #f5f7fa;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.wamf-leaderboard-name:hover {
+  color: #4fc3f7;
+  text-decoration: underline;
+}
+
+.wamf-leaderboard-count {
+  color: #4fc3f7;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wamf-leaderboard-track {
+  height: 8px;
+  margin: 6px 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.wamf-leaderboard-bar {
+  height: 100%;
+  min-width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(79, 195, 247, 0.45),
+    rgba(79, 195, 247, 0.9)
+  );
+}
+
+.wamf-leaderboard-dates {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 16px;
+}
+
+.wamf-leaderboard-dates span {
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .wamf-history-label-wide {
+    display: none;
+  }
+}

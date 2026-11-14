@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
 
@@ -799,4 +799,95 @@ def get_retention_status():
         return row
 
     return None
-   
+
+
+def _history_bounds(start_date, end_date):
+    """detection_time bounds for an inclusive date range; keeps the index usable."""
+    return (
+        start_date.isoformat(),
+        (end_date + timedelta(days=1)).isoformat(),
+    )
+
+
+def get_history_daily_counts(start_date, end_date):
+    """Map each date in the range that has detections to its detection count."""
+    conn = connect_db(DBPATH)
+
+    rows = conn.execute("""
+        SELECT
+            date(detection_time) AS day,
+            COUNT(*) AS total
+        FROM detections
+        WHERE detection_time >= ?
+          AND detection_time < ?
+        GROUP BY day
+        ORDER BY day
+    """, _history_bounds(start_date, end_date)).fetchall()
+
+    conn.close()
+
+    return {
+        datetime.strptime(row['day'], '%Y-%m-%d').date(): row['total']
+        for row in rows
+        if row['day']
+    }
+
+
+def get_history_species(start_date, end_date):
+    """Species seen in the range, busiest first, with all-time first/last seen."""
+    conn = connect_db(DBPATH)
+
+    attach_names_db(conn, NAMEDBPATH)
+
+    rows = conn.execute("""
+        SELECT
+            detections.display_name AS scientific_name,
+            COALESCE(
+                birdnames_db.birdnames.common_name,
+                detections.display_name
+            ) AS common_name,
+            COUNT(*) AS total,
+            lifetime.first_seen,
+            lifetime.last_seen
+        FROM detections
+        JOIN (
+            SELECT
+                display_name,
+                MIN(detection_time) AS first_seen,
+                MAX(detection_time) AS last_seen
+            FROM detections
+            GROUP BY display_name
+        ) AS lifetime
+        ON lifetime.display_name = detections.display_name
+        LEFT JOIN birdnames_db.birdnames
+        ON detections.display_name = birdnames_db.birdnames.scientific_name
+        WHERE detections.detection_time >= ?
+          AND detections.detection_time < ?
+        GROUP BY detections.display_name
+        ORDER BY total DESC, common_name
+    """, _history_bounds(start_date, end_date)).fetchall()
+
+    conn.close()
+
+    return [dict(row) for row in rows]
+
+
+def get_history_cameras(start_date, end_date):
+    """Detection and species counts per camera in the range, busiest first."""
+    conn = connect_db(DBPATH)
+
+    rows = conn.execute("""
+        SELECT
+            COALESCE(NULLIF(camera_name, ''), 'Unknown') AS camera,
+            COUNT(*) AS total,
+            COUNT(DISTINCT display_name) AS species_count
+        FROM detections
+        WHERE detection_time >= ?
+          AND detection_time < ?
+        GROUP BY camera
+        ORDER BY total DESC, camera
+    """, _history_bounds(start_date, end_date)).fetchall()
+
+    conn.close()
+
+    return [dict(row) for row in rows]

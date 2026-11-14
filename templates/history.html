@@ -1,0 +1,174 @@
+{% extends "base.html" %} {% block title %} History {% endblock %} {% block
+content %}
+
+<section class="wamf-panel">
+  <div class="wamf-history-header">
+    <h1 class="wamf-heading">Observatory History</h1>
+
+    <nav class="wamf-range-picker" aria-label="Date range">
+      {% for option in ranges %}
+      <a
+        class="wamf-range-chip{% if option.key == range_key %} active{% endif %}"
+        href="{{ url_for('public.history', range=option.key) }}"
+        {% if option.key == range_key %}aria-current="page"{% endif %}
+        >{{ option.label }}</a
+      >
+      {% endfor %}
+    </nav>
+  </div>
+
+  <p class="wamf-meta-secondary">
+    {{ range_start }} – {{ range_end }} ({{ span_days }} day{% if span_days != 1
+    %}s{% endif %})
+  </p>
+
+  {% if total_detections %}
+  <div class="wamf-history-stats">
+    <div class="wamf-summary-card">
+      <h3>Total Detections</h3>
+
+      <div class="wamf-summary-total">
+        {{ '{:,}'.format(total_detections) }}
+      </div>
+    </div>
+
+    <div class="wamf-summary-card">
+      <h3>Species Seen</h3>
+
+      <div class="wamf-summary-total">{{ species_count }}</div>
+    </div>
+
+    <div class="wamf-summary-card">
+      <h3>Busiest Day</h3>
+
+      <div class="wamf-summary-total">
+        <a
+          class="wamf-summary-link"
+          href="{{ url_for('public.show_daily_summary', date=busiest_day.date) }}"
+          >{{ busiest_day.display }}</a
+        >
+      </div>
+
+      <div class="wamf-meta-secondary">
+        {{ '{:,}'.format(busiest_day.total) }} detections
+      </div>
+    </div>
+
+    <div class="wamf-summary-card">
+      <h3>Daily Average</h3>
+
+      <div class="wamf-summary-total">{{ daily_average }}</div>
+
+      <div class="wamf-meta-secondary">
+        Detections on {{ active_days }} of {{ span_days }} day{% if span_days !=
+        1 %}s{% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="wamf-history-empty">No detections in this range yet.</p>
+  {% endif %}
+</section>
+
+{% if total_detections %}
+<section class="wamf-panel">
+  <h2 class="wamf-heading">Detections per {{ trend.granularity }}</h2>
+
+  <div class="wamf-history-chart">
+    <div class="wamf-history-axis" aria-hidden="true">
+      <span>{{ '{:,}'.format(trend.peak) }}</span>
+      <span>0</span>
+    </div>
+
+    <div class="wamf-history-bars">
+      {% for bucket in trend.buckets %}
+      {% set summary = "%s: %s detection%s"|format(bucket.description, '{:,}'.format(bucket.total), '' if bucket.total == 1 else 's') %}
+      {% set linked = trend.granularity == 'day' and bucket.total %}
+      <{{ 'a' if linked else 'div' }}
+        class="wamf-history-bar-group"
+        {% if linked %}href="{{ url_for('public.show_daily_summary', date=bucket.date) }}"{% else %}role="img"{% endif %}
+        title="{{ summary }}"
+        aria-label="{{ summary }}"
+      >
+        <span class="wamf-history-bar-track">
+          <span class="wamf-history-bar{% if not bucket.total %} is-empty{% endif %}" style="height: {{ bucket.percent }}%;"></span>
+        </span>
+        <span class="wamf-history-label">
+          {% if bucket.show_label %}<span{% if bucket.label_wide_only %} class="wamf-history-label-wide"{% endif %}>{{ bucket.label }}</span>{% endif %}
+        </span>
+      </{{ 'a' if linked else 'div' }}>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="wamf-panel">
+  <h2 class="wamf-heading">Species Leaderboard</h2>
+
+  <p class="wamf-meta-secondary">
+    Counts cover the selected range. First and last seen are all-time.
+  </p>
+
+  <ol class="wamf-leaderboard">
+    {% for item in species %}
+    <li class="wamf-leaderboard-row">
+      <span class="wamf-leaderboard-rank">{{ loop.index }}</span>
+
+      <div class="wamf-leaderboard-body">
+        <div class="wamf-leaderboard-top">
+          <a
+            class="wamf-leaderboard-name"
+            href="{{ url_for(
+              'public.show_detections_by_scientific_name',
+              scientific_name=item.scientific_name,
+              date=item.last_seen_date,
+              end_date=None
+            ) }}"
+            title="Detections on {{ item.last_seen_display }}"
+            >{{ item.common_name }}</a
+          >
+
+          <span class="wamf-leaderboard-count">
+            {{ '{:,}'.format(item.total) }}
+            <span class="wamf-meta-secondary">· {{ item.share }}%</span>
+          </span>
+        </div>
+
+        <div class="wamf-leaderboard-track">
+          <div
+            class="wamf-leaderboard-bar"
+            style="width: {{ item.bar_percent }}%;"
+          ></div>
+        </div>
+
+        <div class="wamf-meta-secondary wamf-leaderboard-dates">
+          <span>First seen {{ item.first_seen_display }}</span>
+          <span>Last seen {{ item.last_seen_display }}</span>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
+<section class="wamf-panel">
+  <h2 class="wamf-heading">By Camera</h2>
+
+  <div class="wamf-history-stats">
+    {% for item in cameras %}
+    <div class="wamf-summary-card">
+      <h3>{{ item.camera }}</h3>
+
+      <div class="wamf-summary-total">
+        {{ '{:,}'.format(item.total) }} detection{% if item.total != 1 %}s{%
+        endif %}
+      </div>
+
+      <div class="wamf-meta-secondary">
+        {{ item.share }}% of detections · {{ item.species_count }} species
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %} {% endblock %}

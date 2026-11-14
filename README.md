@@ -128,6 +128,8 @@ Flask Observatory UI
 - Fake detection seeding workflows (For development only)
 - Refactored analytics and summary views
 - Non-Frigate camera sources (e.g. Reolink via Home Assistant) via a Frigate-API shim
+- History page: detections over time, a species leaderboard and per-camera totals
+  for the last 7 days, 30 days, year, or all time
 - `tracked_labels`: logging of non-bird animal types identified upstream, without
   running WAMF's bird classifier on them
 

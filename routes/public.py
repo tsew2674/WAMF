@@ -4,6 +4,7 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
+from app.history import RANGES, build_trend, resolve_range
 from app.logging_utils import sanitize_log_value
 
 
@@ -185,6 +186,79 @@ def activity():
         species_count=len(top_species),
         species_peak_hours=species_peak_hours,
         date=date_str
+    )
+
+
+def _display_day(day):
+    return f'{day.day} {day:%b %Y}'
+
+
+def _percent(part, whole):
+    return round(part / whole * 100, 1) if whole else 0
+
+
+@public_bp.route('/history')
+def history():
+    import webui
+
+    today = datetime.now().date()
+    earliest = webui.get_earliest_detection_date()
+    range_key, start, end = resolve_range(
+        request.args.get('range'),
+        today,
+        datetime.strptime(earliest, '%Y-%m-%d').date() if earliest else None,
+    )
+
+    daily_counts = webui.get_history_daily_counts(start, end)
+    total_detections = sum(daily_counts.values())
+    span_days = (end - start).days + 1
+    busiest_day = max(
+        daily_counts.items(),
+        key=lambda item: item[1],
+        default=None
+    )
+
+    species = webui.get_history_species(start, end)
+    top_species_total = species[0]['total'] if species else 0
+    for item in species:
+        first_seen = datetime.strptime(item['first_seen'][:10], '%Y-%m-%d')
+        last_seen = datetime.strptime(item['last_seen'][:10], '%Y-%m-%d')
+        item['first_seen_display'] = _display_day(first_seen)
+        item['last_seen_display'] = _display_day(last_seen)
+        item['last_seen_date'] = last_seen.strftime('%Y-%m-%d')
+        item['share'] = _percent(item['total'], total_detections)
+        item['bar_percent'] = _percent(item['total'], top_species_total)
+
+    cameras = webui.get_history_cameras(start, end)
+    for item in cameras:
+        item['share'] = _percent(item['total'], total_detections)
+
+    return render_template(
+        'history.html',
+        ranges=[
+            {'key': key, 'label': label}
+            for key, label, _days in RANGES
+        ],
+        range_key=range_key,
+        range_start=_display_day(start),
+        range_end=_display_day(end),
+        span_days=span_days,
+        total_detections=total_detections,
+        species_count=len(species),
+        active_days=len(daily_counts),
+        daily_average=round(total_detections / span_days, 1),
+        busiest_day=(
+            {
+                'display': _display_day(busiest_day[0]),
+                'date': busiest_day[0].isoformat(),
+                'total': busiest_day[1],
+            }
+            if busiest_day
+            else None
+        ),
+        trend=build_trend(daily_counts, start, end),
+        species=species,
+        cameras=cameras,
     )
 
 
