@@ -330,14 +330,17 @@ def scan_for_orphans():
         log_system_event(severity, event_type, message)
 
 
+def run_retention():
+    """One full retention pass, shared by the command line and the daily schedule."""
+    dry_run_retention()
+    scan_for_orphans()
+    prune_system_events()
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
     )
 
-    dry_run_retention()
-
-    scan_for_orphans()
-
-    prune_system_events()
+    run_retention()

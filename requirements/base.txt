@@ -8,3 +8,4 @@ tflite-support==0.4.4
 requests==2.34.2
 Pillow==13.0.0
 Werkzeug==3.1.9
+tzdata==2026.4

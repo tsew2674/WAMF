@@ -56,6 +56,8 @@ api:
 
 retention:
   enabled: true
+  # Snapshots and clips age out separately. To keep one of them indefinitely,
+  # give it a very large value (36500 is about 100 years).
   snapshots_days: 90
   clips_days: 90
   delete_media: false
@@ -65,6 +67,13 @@ retention:
   system_events_min_rows: 1000
   config_backups_max_files: 10
   species_overrides: {}
+  # Optional daily run inside WAMF, so no cron job is needed. It does what
+  # `python retention.py` does, and only deletes files when delete_media is true.
+  # Quote the time. Changes take effect after a WAMF restart.
+  schedule:
+    enabled: false
+    time: "03:00"
+    timezone: "UTC"  # IANA name, e.g. America/New_York
 
 admin:
   auth_enabled: true

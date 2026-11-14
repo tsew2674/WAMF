@@ -130,6 +130,8 @@ Flask Observatory UI
 - Non-Frigate camera sources (e.g. Reolink via Home Assistant) via a Frigate-API shim
 - History page: detections over time, a species leaderboard and per-camera totals
   for the last 7 days, 30 days, year, or all time
+- Built-in daily retention schedule (`retention.schedule`), so media cleanup no
+  longer needs an external cron job
 - `tracked_labels`: logging of non-bird animal types identified upstream, without
   running WAMF's bird classifier on them
 

@@ -42,6 +42,7 @@ from app.process_control import WorkerSupervisor, configure_worker_signals
 from wamf_paths import ensure_storage_paths
 from integrations.bridge import post_observation_event
 from app.health import start_health_monitor, set_detection_worker_enabled
+from app.retention_scheduler import start_retention_scheduler
 
 classifier = None
 config = None
@@ -956,6 +957,7 @@ def run_webui():
                 return
             set_detection_worker_enabled(not preflight(webui.config))
             start_health_monitor()
+            start_retention_scheduler(webui.config)
             activated = True
 
     webui.start_runtime_services = activate
@@ -965,6 +967,7 @@ def run_webui():
         # Preserve the already-loaded native startup configuration.
         set_detection_worker_enabled(not preflight(config))
         start_health_monitor()
+        start_retention_scheduler(config)
         activated = True
 
     app.run(
