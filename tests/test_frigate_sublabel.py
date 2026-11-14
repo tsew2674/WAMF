@@ -399,7 +399,7 @@ def test_prefer_sub_label_overrides_confident_wamf_result(fresh_db):
     row = _row(fresh_db)
     assert row is not None
     assert row[0] == 'frigate_classified'
-    assert row[1] == pytest.approx(0.9)
+    assert abs(row[1] - 0.9) < 0.001
     assert row[2] == 'Cardinalis cardinalis'
 
 
