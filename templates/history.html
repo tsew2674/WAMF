@@ -106,7 +106,8 @@ content %}
   <h2 class="wamf-heading">Species Leaderboard</h2>
 
   <p class="wamf-meta-secondary">
-    Counts cover the selected range. First and last seen are all-time.
+    Counts and dates cover the selected range. Select a species for its
+    all-time stats.
   </p>
 
   <ol class="wamf-leaderboard">
@@ -120,11 +121,9 @@ content %}
             class="wamf-leaderboard-name"
             href="{{ url_for(
               'public.show_detections_by_scientific_name',
-              scientific_name=item.scientific_name,
-              date=item.last_seen_date,
-              end_date=None
+              scientific_name=item.scientific_name
             ) }}"
-            title="Detections on {{ item.last_seen_display }}"
+            title="All-time stats for {{ item.common_name }}"
             >{{ item.common_name }}</a
           >
 

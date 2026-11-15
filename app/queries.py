@@ -367,6 +367,37 @@ def get_records_for_scientific_name_and_date(
         for record in records
     ]
 
+def get_records_for_scientific_name(
+    scientific_name,
+    page,
+    per_page,
+):
+    """Every detection of one species, newest first."""
+    conn = connect_db(DBPATH)
+    attach_names_db(conn, NAMEDBPATH)
+    offset = (page - 1) * per_page
+    rows = conn.execute(
+        f"""
+        SELECT
+            {DETECTION_SELECT},
+            COALESCE(
+                birdnames_db.birdnames.common_name,
+                detections.display_name
+            ) AS common_name
+        FROM detections
+        LEFT JOIN birdnames_db.birdnames
+        ON detections.display_name = birdnames_db.birdnames.scientific_name
+        WHERE detections.display_name = ?
+        ORDER BY detections.detection_time DESC
+        LIMIT ?
+        OFFSET ?
+        """,
+        (scientific_name, per_page, offset),
+    ).fetchall()
+    conn.close()
+    return [detection_row_to_dict(row) for row in rows]
+
+
 def get_detection_count_for_scientific_name_and_date(
     scientific_name,
     date
@@ -834,7 +865,7 @@ def get_history_daily_counts(start_date, end_date):
 
 
 def get_history_species(start_date, end_date):
-    """Species seen in the range, busiest first, with all-time first/last seen."""
+    """Species seen in the range, busiest first, with first/last seen in it."""
     conn = connect_db(DBPATH)
 
     attach_names_db(conn, NAMEDBPATH)
@@ -847,18 +878,9 @@ def get_history_species(start_date, end_date):
                 detections.display_name
             ) AS common_name,
             COUNT(*) AS total,
-            lifetime.first_seen,
-            lifetime.last_seen
+            MIN(detections.detection_time) AS first_seen,
+            MAX(detections.detection_time) AS last_seen
         FROM detections
-        JOIN (
-            SELECT
-                display_name,
-                MIN(detection_time) AS first_seen,
-                MAX(detection_time) AS last_seen
-            FROM detections
-            GROUP BY display_name
-        ) AS lifetime
-        ON lifetime.display_name = detections.display_name
         LEFT JOIN birdnames_db.birdnames
         ON detections.display_name = birdnames_db.birdnames.scientific_name
         WHERE detections.detection_time >= ?

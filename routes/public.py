@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
 from app.history import RANGES, build_trend, resolve_range
 from app.logging_utils import sanitize_log_value
@@ -67,6 +67,10 @@ def show_detections_by_hour(date, hour):
 
 
 @public_bp.route(
+    '/detections/by_scientific_name/<scientific_name>',
+    defaults={'date': None, 'end_date': None}
+)
+@public_bp.route(
     '/detections/by_scientific_name/<scientific_name>/<date>',
     defaults={'end_date': None}
 )
@@ -86,30 +90,46 @@ def show_detections_by_scientific_name(scientific_name, date, end_date):
         return jsonify({"error": "Date range queries are not yet implemented."}), 501
 
     per_page = 25
-    total_records = (
-        webui.get_detection_count_for_scientific_name_and_date(
+    species_activity = webui.get_species_activity_by_hour(scientific_name)
+
+    if date is None:
+        # No date in the URL: all-time view of the species.
+        species_stats = dict(webui.get_species_stats(scientific_name))
+        total_records = species_stats['total_detections']
+        if not total_records:
+            abort(404)
+        records = webui.get_records_for_scientific_name(
             scientific_name,
-            date
+            page,
+            per_page
         )
-    )
+        species_stats['peak_hour'] = max(
+            species_activity,
+            key=lambda item: item['total']
+        )['hour']
+    else:
+        total_records = (
+            webui.get_detection_count_for_scientific_name_and_date(
+                scientific_name,
+                date
+            )
+        )
+        records = webui.get_records_for_scientific_name_and_date(
+            scientific_name,
+            date,
+            page,
+            per_page
+        )
+        species_stats = webui.get_species_stats_for_date(scientific_name, date)
 
     total_pages = (
         total_records + per_page - 1
     ) // per_page
-    records = webui.get_records_for_scientific_name_and_date(
-        scientific_name,
-        date,
-        page,
-        per_page
-    )
-    species_stats = webui.get_species_stats_for_date(scientific_name, date)
     species_info = webui.get_species_info(scientific_name)
 
     # Metadata can require a network call, so queue it instead of delaying page render.
     if webui.species_needs_metadata(species_info):
         webui.queue_metadata_refresh(scientific_name)
-
-    species_activity = webui.get_species_activity_by_hour(scientific_name)
 
     return render_template(
         'detections_by_scientific_name.html',
@@ -120,6 +140,10 @@ def show_detections_by_scientific_name(scientific_name, date, end_date):
         records=records,
         species_stats=species_stats,
         species_activity=species_activity,
+        activity_peak=max(
+            (item['total'] for item in species_activity),
+            default=0
+        ),
         species_info=species_info,
         page=page,
         total_pages=total_pages,
@@ -225,7 +249,6 @@ def history():
         last_seen = datetime.strptime(item['last_seen'][:10], '%Y-%m-%d')
         item['first_seen_display'] = _display_day(first_seen)
         item['last_seen_display'] = _display_day(last_seen)
-        item['last_seen_date'] = last_seen.strftime('%Y-%m-%d')
         item['share'] = _percent(item['total'], total_detections)
         item['bar_percent'] = _percent(item['total'], top_species_total)
 

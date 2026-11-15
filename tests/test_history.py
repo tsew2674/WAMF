@@ -32,6 +32,19 @@ def _make_db(path, rows):
             wamf_clip_path TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE species_info (
+            scientific_name TEXT PRIMARY KEY,
+            common_name TEXT,
+            description TEXT,
+            wikipedia_url TEXT,
+            ebird_url TEXT,
+            inaturalist_url TEXT,
+            gbif_url TEXT,
+            last_updated TEXT,
+            thumbnail_url TEXT
+        )
+    """)
     conn.executemany(
         """
         INSERT INTO detections
@@ -171,7 +184,7 @@ def test_daily_counts_exclude_days_outside_the_range(history_queries):
     assert counts == {}
 
 
-def test_species_are_ranked_with_all_time_first_and_last_seen(history_queries):
+def test_species_are_ranked_with_first_and_last_seen_in_the_range(history_queries):
     species = history_queries.get_history_species(date(2026, 11, 8), TODAY)
 
     assert [(item['common_name'], item['total']) for item in species] == [
@@ -179,12 +192,36 @@ def test_species_are_ranked_with_all_time_first_and_last_seen(history_queries):
         ('American Robin', 1),
         ('Squirrel', 1),
     ]
+    # The robin was first seen in 2025, but only once inside this window.
     robin = species[1]
-    # Only one robin falls inside the window, but it was first seen in 2025.
-    assert robin['first_seen'] == '2025-03-02 07:00:00'
+    assert robin['first_seen'] == '2026-11-14 23:59:59'
     assert robin['last_seen'] == '2026-11-14 23:59:59'
+    jay = species[0]
+    assert jay['first_seen'] == '2026-11-10 09:00:00'
+    assert jay['last_seen'] == '2026-11-14 06:00:00'
     # A tracked non-bird label has no taxonomy row and keeps its own name.
     assert species[2]['scientific_name'] == 'Squirrel'
+
+
+def test_species_dates_span_everything_for_the_all_time_range(history_queries):
+    species = history_queries.get_history_species(date(2025, 3, 2), TODAY)
+    robin = next(item for item in species if item['common_name'] == 'American Robin')
+
+    assert robin['total'] == 3
+    assert robin['first_seen'] == '2025-03-02 07:00:00'
+    assert robin['last_seen'] == '2026-11-14 23:59:59'
+
+
+def test_records_for_a_species_are_newest_first_and_paged(history_queries):
+    first = history_queries.get_records_for_scientific_name('Cyanocitta cristata', 1, 2)
+    second = history_queries.get_records_for_scientific_name('Cyanocitta cristata', 2, 2)
+
+    assert [record['detection_time'] for record in first] == [
+        '2026-11-14 06:00:00',
+        '2026-11-10 09:30:00',
+    ]
+    assert [record['detection_time'] for record in second] == ['2026-11-10 09:00:00']
+    assert first[0]['common_name'] == 'Blue Jay'
 
 
 def test_cameras_group_missing_names_as_unknown(history_queries):
@@ -204,7 +241,10 @@ def test_cameras_group_missing_names_as_unknown(history_queries):
 @pytest.fixture()
 def history_client(flask_client, history_queries, monkeypatch):
     import routes.public
+    import webui
     monkeypatch.setattr(routes.public, 'datetime', _FixedDatetime)
+    # The species page would otherwise queue a Wikipedia lookup.
+    monkeypatch.setattr(webui, 'queue_metadata_refresh', lambda name: None)
     return flask_client
 
 
@@ -222,15 +262,17 @@ def test_history_defaults_to_all_time(history_client):
     assert '<span>Last seen 14 Nov 2026</span>' in page
 
 
-def test_history_range_limits_counts_but_not_first_seen(history_client):
+def test_history_range_limits_counts_and_dates(history_client):
     page = history_client.get('/history?range=7d').get_data(as_text=True)
 
     assert '8 Nov 2026 – 14 Nov 2026 (7 days)' in page
     assert 'Detections per day' in page
     assert 'Tuesday 10 Nov 2026: 3 detections' in page
     assert 'href="/daily_summary/2026-11-10"' in page
-    assert 'First seen 2 Mar 2025' in page
-    assert '/detections/by_scientific_name/Squirrel/2026-11-10' in page
+    # The robin's 2025 sighting is outside the last 7 days.
+    assert '2 Mar 2025' not in page
+    assert '<span>First seen 10 Nov 2026</span>' in page
+    assert 'href="/detections/by_scientific_name/Squirrel"' in page
     assert '40.0% of detections · 2 species' in page
 
 
@@ -256,3 +298,73 @@ def test_history_empty_database(flask_client, tmp_path, patched_queries, monkeyp
 def test_history_is_linked_from_the_navbar(flask_client):
     page = flask_client.get('/').get_data(as_text=True)
     assert 'href="/history"' in page
+
+
+# ---------------------------------------------------------------------------
+# All-time species page
+# ---------------------------------------------------------------------------
+
+def test_species_page_without_a_date_shows_all_time_stats(history_client):
+    response = history_client.get('/detections/by_scientific_name/Cyanocitta%20cristata')
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert re.search(r'Total Detections</h3>\s*<div class="wamf-summary-total">3</div>', page)
+    assert 'Detections on' not in page
+    # First and last seen across every day, not one.
+    assert re.search(r'First Seen</h3>.*?2026-11-10\s*<br />\s*09:00', page, re.S)
+    assert re.search(r'Last Seen</h3>.*?2026-11-14\s*<br />\s*06:00', page, re.S)
+    # Two of the three sightings were in the 09:00 hour.
+    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">09:00</div>', page)
+    # Each detection shows its date, since they span several days.
+    assert re.search(r'Seen 2026-11-10\s+at 09:30', page)
+    assert 'View all-time stats' not in page
+
+
+def test_species_page_all_time_works_for_non_bird_labels(history_client):
+    page = history_client.get('/detections/by_scientific_name/Squirrel').get_data(as_text=True)
+
+    assert re.search(r'Total Detections</h3>\s*<div class="wamf-summary-total">1</div>', page)
+    assert re.search(r'Seen 2026-11-10\s+at 10:00', page)
+
+
+def test_species_page_without_a_date_is_404_for_an_unknown_species(history_client):
+    assert history_client.get('/detections/by_scientific_name/Dodo').status_code == 404
+
+
+def test_dated_species_page_keeps_daily_stats_and_links_to_all_time(history_client):
+    page = history_client.get(
+        '/detections/by_scientific_name/Cyanocitta%20cristata/2026-11-10'
+    ).get_data(as_text=True)
+
+    assert re.search(
+        r'Detections on 2026-11-10</h3>\s*<div class="wamf-summary-total">2</div>', page
+    )
+    assert 'href="/detections/by_scientific_name/Cyanocitta%20cristata"' in page
+    assert 'View all-time stats' in page
+    assert 'Seen 2026-11-10' not in page
+
+
+def test_species_page_all_time_pagination_stays_all_time(
+    flask_client, tmp_path, patched_queries, monkeypatch
+):
+    import webui
+    db = str(tmp_path / 'many.db')
+    _make_db(db, [
+        (f'2026-11-{day:02d} 08:00:00', 'Squirrel', 'feeder')
+        for day in range(1, 31)
+    ])
+    monkeypatch.setattr(patched_queries, 'DBPATH', db)
+    monkeypatch.setattr(webui, 'queue_metadata_refresh', lambda name: None)
+
+    first = flask_client.get('/detections/by_scientific_name/Squirrel').get_data(as_text=True)
+    second = flask_client.get(
+        '/detections/by_scientific_name/Squirrel?page=2'
+    ).get_data(as_text=True)
+
+    assert 'Page 1 of 2 (30 detections)' in first
+    assert 'href="/detections/by_scientific_name/Squirrel?page=2"' in first
+    assert first.count('% confidence') == 25
+    assert 'Page 2 of 2 (30 detections)' in second
+    assert second.count('% confidence') == 5
+    assert 'href="/detections/by_scientific_name/Squirrel?page=1"' in second

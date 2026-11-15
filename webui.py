@@ -12,6 +12,7 @@ from app.queries import get_species_activity_by_hour, get_admin_stats, get_recen
 from app.queries import get_species_info, get_all_species_info, get_detection_count_for_scientific_name_and_date
 from app.queries import get_species_stats_for_date
 from app.queries import get_history_daily_counts, get_history_species, get_history_cameras
+from app.queries import get_records_for_scientific_name
 from app.health import get_system_health
 from version import VERSION
 from app.metadata_tasks import (

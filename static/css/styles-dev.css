@@ -1400,3 +1400,14 @@ a.wamf-history-bar-group:focus-visible .wamf-history-bar {
     display: none;
   }
 }
+
+/* The hourly chart can be wider than a phone screen; scroll the chart instead
+   of the whole page. The top padding leaves room for the bars' hover lift. */
+.wamf-activity-chart {
+  overflow-x: auto;
+  padding-top: 6px;
+}
+
+.wamf-species-hero-content .log-filter-btn {
+  margin-bottom: 1rem;
+}
