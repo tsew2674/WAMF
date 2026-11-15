@@ -268,13 +268,148 @@ changes for this; only two things need to exist:
      identified species back here, but nothing on WAMF's side depends on it
      succeeding.
 
-   A small nginx container with a couple of `location` blocks is enough for
-   this. Point `frigate.frigate_url` at the shim and `frigate.main_topic` at
-   the MQTT topic your automation publishes to.
+   A small nginx container with a few `location` blocks is enough for this;
+   a complete example follows below. Point `frigate.frigate_url` at the shim
+   and `frigate.main_topic` at the MQTT topic your automation publishes to.
 
 Because `frigate_url` and `main_topic` are both singular per WAMF instance,
 a camera source set up this way is effectively a dedicated WAMF instance —
 run a second instance alongside a real Frigate-backed one if you want both.
+
+## Example: an nginx shim in front of Home Assistant
+
+This is a working layout for cameras handled by a Home Assistant automation.
+For each visit the automation saves a still and a clip as `<id>.jpg` and
+`<id>.mp4` in a folder under Home Assistant's `/config/www/`, which Home
+Assistant serves at `/local/<clips-folder>/`. It then publishes the MQTT event
+described above using that same `<id>`. The shim's whole job is to turn the
+Frigate-style URLs WAMF asks for into those file URLs.
+
+Home Assistant serves everything under `/config/www/` without a login. Anyone
+who can reach your Home Assistant address and guess a file name can fetch it,
+so think about what the automation saves there if Home Assistant is reachable
+from the internet.
+
+### docker-compose.yml
+
+WAMF and the shim run side by side. WAMF reaches the shim by its service name
+over the compose network, so the shim needs no published port.
+
+```yaml
+services:
+  wamf:
+    container_name: wamf
+    restart: unless-stopped
+    # Built from this repository (docker build -t wamf:local .). The image
+    # published by the upstream project does not include this fork's changes.
+    image: wamf:local
+    pull_policy: never
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./media:/app/media
+    ports:
+      - "7767:7767" # The container port must match webui.port in config.yml.
+    environment:
+      TZ: Europe/London # Your timezone.
+    stop_grace_period: 30s
+    depends_on:
+      - wamf-shim
+
+  wamf-shim:
+    image: nginx:alpine
+    container_name: wamf-shim
+    restart: unless-stopped
+    volumes:
+      - ./shim.conf:/etc/nginx/conf.d/default.conf:ro
+    # Optional: publish the shim so you can test it with curl from another
+    # machine. WAMF itself does not need this.
+    # ports:
+    #   - "5056:80"
+```
+
+### shim.conf
+
+Replace the three placeholders: `<home-assistant-host>`, `<clips-folder>` and
+`<dns-server-ip>`.
+
+```nginx
+server {
+  listen 80;
+
+  # The proxy_pass targets below combine a hostname with a captured variable,
+  # so nginx looks the name up on each request and needs to be told which DNS
+  # server to ask.
+  resolver <dns-server-ip> valid=300s;
+  # Send the hostname in the TLS handshake, for a reverse proxy in front of
+  # Home Assistant that routes by name.
+  proxy_ssl_server_name on;
+
+  # WAMF's health check only needs a 200 response.
+  location = /api/version { default_type text/plain; return 200 "0.14.0"; }
+
+  # Species write-back: there is no Frigate event to update, so acknowledge it.
+  location ~ ^/api/events/[^/]+/sub_label$ { return 200; }
+
+  # Extra events from one visit share the base files:
+  #   <id>_s2, <id>_s3, ... = additional bird species
+  #   <id>_a1, <id>_a2, ... = non-bird animals
+  # Must stay above the generic rules below: nginx uses the first regex that matches.
+  location ~ ^/api/events/(.+)_[sa]\d+/(snapshot|thumbnail)\.jpg$ {
+    proxy_pass https://<home-assistant-host>/local/<clips-folder>/$1.jpg;
+  }
+  location ~ ^/api/events/(.+)_[sa]\d+/clip\.mp4$ {
+    proxy_pass https://<home-assistant-host>/local/<clips-folder>/$1.mp4;
+  }
+
+  # One event, one still and one clip. Thumbnails reuse the still.
+  location ~ ^/api/events/([^/]+)/(snapshot|thumbnail)\.jpg$ {
+    proxy_pass https://<home-assistant-host>/local/<clips-folder>/$1.jpg;
+  }
+  location ~ ^/api/events/([^/]+)/clip\.mp4$ {
+    proxy_pass https://<home-assistant-host>/local/<clips-folder>/$1.mp4;
+  }
+
+  location / { return 404; }
+}
+```
+
+Notes on the shim:
+
+- **Several events per visit.** The two `_s`/`_a` rules are only needed if your
+  automation publishes more than one event for a single visit, for example one
+  per species it recognised, each with a suffixed `id` so WAMF stores them
+  separately while they share one still and clip. Pick base ids that do not
+  themselves end in `_s<number>` or `_a<number>`.
+- **Plain HTTP by IP address.** If the shim can reach Home Assistant directly,
+  use `http://<home-assistant-ip>:8123/local/...` in the `proxy_pass` lines and
+  drop `resolver` and `proxy_ssl_server_name`.
+- **Restart after editing.** Run `docker restart wamf-shim` after changing
+  `shim.conf`. A single-file mount can keep serving the old file when an
+  editor replaces it, so `nginx -s reload` is not enough.
+- **Checking it.** With a file the automation has already saved, this should
+  print `200 image/jpeg`:
+
+  ```bash
+  docker exec wamf python -c "import requests; r = requests.get('http://wamf-shim/api/events/<id>/snapshot.jpg'); print(r.status_code, r.headers.get('Content-Type'))"
+  ```
+
+### Matching WAMF settings
+
+```yaml
+frigate:
+  frigate_url: http://wamf-shim # The shim's service name on the compose network.
+  mqtt_server: <mqtt-host>
+  main_topic: wamf_cameras # The automation publishes to wamf_cameras/events.
+  camera:
+    - feeder_cam # Must match the "camera" value in the published events.
+  object: bird
+  tracked_labels: "*" # Log non-bird labels as sent, without classifying them.
+
+classification:
+  # Trust the species name the automation sends in sub_label.
+  prefer_sub_label: true
+```
 
 ---
 
