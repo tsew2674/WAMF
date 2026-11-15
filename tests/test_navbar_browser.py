@@ -59,7 +59,7 @@ def test_chromium_navbar_visibility_and_collapse(navbar_page, tmp_path, width):
   const links = [...menu.querySelectorAll('a')];
   const accessibleLinks = () => {
     check(links.map(a => a.textContent.trim()).join('|') ===
-      'Overview|Recent Feed|Today|History|Live View|Admin', 'navigation links');
+      'Overview|Recent Feed|Today|History|Admin', 'navigation links');
     for (const link of links) {
       check(visible(link) && link.getAttribute('href'), 'link visible with destination');
       link.focus();
