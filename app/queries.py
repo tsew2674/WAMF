@@ -681,6 +681,26 @@ def get_species_activity_by_hour(scientific_name):
 
     return rows
 
+def get_species_activity_by_hour_for_date(scientific_name, date):
+    """Detections of one species per hour on a single day."""
+    conn = connect_db(DBPATH)
+
+    rows = conn.execute("""
+        SELECT
+            strftime('%H', detection_time) AS hour,
+            COUNT(*) AS total
+        FROM detections
+        WHERE display_name = ?
+        AND strftime('%Y-%m-%d', detection_time) = ?
+        GROUP BY hour
+        ORDER BY hour
+    """, (scientific_name, date)).fetchall()
+
+    conn.close()
+
+    return rows
+
+
 def get_admin_stats():
 
     conn = connect_db(DBPATH)
@@ -832,28 +852,53 @@ def get_retention_status():
     return None
 
 
-def _history_bounds(start_date, end_date):
-    """detection_time bounds for an inclusive date range; keeps the index usable."""
-    return (
+def _history_filter(start_date, end_date, camera=None):
+    """WHERE clause and parameters for an inclusive date range and optional camera.
+
+    The date bounds compare detection_time directly so the index stays usable.
+    """
+    clause = "detections.detection_time >= ? AND detections.detection_time < ?"
+    params = [
         start_date.isoformat(),
         (end_date + timedelta(days=1)).isoformat(),
-    )
+    ]
+    if camera:
+        clause += " AND COALESCE(NULLIF(detections.camera_name, ''), 'Unknown') = ?"
+        params.append(camera)
+    return clause, params
 
 
-def get_history_daily_counts(start_date, end_date):
+def get_history_earliest_date(camera=None):
+    """Date of the first detection, optionally for one camera."""
+    conn = connect_db(DBPATH)
+
+    query = "SELECT MIN(date(detection_time)) FROM detections"
+    params = []
+    if camera:
+        query += " WHERE COALESCE(NULLIF(camera_name, ''), 'Unknown') = ?"
+        params.append(camera)
+
+    earliest = conn.execute(query, params).fetchone()[0]
+
+    conn.close()
+
+    return datetime.strptime(earliest, '%Y-%m-%d').date() if earliest else None
+
+
+def get_history_daily_counts(start_date, end_date, camera=None):
     """Map each date in the range that has detections to its detection count."""
     conn = connect_db(DBPATH)
 
-    rows = conn.execute("""
+    clause, params = _history_filter(start_date, end_date, camera)
+    rows = conn.execute(f"""
         SELECT
-            date(detection_time) AS day,
+            date(detections.detection_time) AS day,
             COUNT(*) AS total
         FROM detections
-        WHERE detection_time >= ?
-          AND detection_time < ?
+        WHERE {clause}
         GROUP BY day
         ORDER BY day
-    """, _history_bounds(start_date, end_date)).fetchall()
+    """, params).fetchall()
 
     conn.close()
 
@@ -864,13 +909,14 @@ def get_history_daily_counts(start_date, end_date):
     }
 
 
-def get_history_species(start_date, end_date):
+def get_history_species(start_date, end_date, camera=None):
     """Species seen in the range, busiest first, with first/last seen in it."""
     conn = connect_db(DBPATH)
 
     attach_names_db(conn, NAMEDBPATH)
 
-    rows = conn.execute("""
+    clause, params = _history_filter(start_date, end_date, camera)
+    rows = conn.execute(f"""
         SELECT
             detections.display_name AS scientific_name,
             COALESCE(
@@ -883,11 +929,10 @@ def get_history_species(start_date, end_date):
         FROM detections
         LEFT JOIN birdnames_db.birdnames
         ON detections.display_name = birdnames_db.birdnames.scientific_name
-        WHERE detections.detection_time >= ?
-          AND detections.detection_time < ?
+        WHERE {clause}
         GROUP BY detections.display_name
         ORDER BY total DESC, common_name
-    """, _history_bounds(start_date, end_date)).fetchall()
+    """, params).fetchall()
 
     conn.close()
 
@@ -898,17 +943,17 @@ def get_history_cameras(start_date, end_date):
     """Detection and species counts per camera in the range, busiest first."""
     conn = connect_db(DBPATH)
 
-    rows = conn.execute("""
+    clause, params = _history_filter(start_date, end_date)
+    rows = conn.execute(f"""
         SELECT
-            COALESCE(NULLIF(camera_name, ''), 'Unknown') AS camera,
+            COALESCE(NULLIF(detections.camera_name, ''), 'Unknown') AS camera,
             COUNT(*) AS total,
-            COUNT(DISTINCT display_name) AS species_count
+            COUNT(DISTINCT detections.display_name) AS species_count
         FROM detections
-        WHERE detection_time >= ?
-          AND detection_time < ?
+        WHERE {clause}
         GROUP BY camera
         ORDER BY total DESC, camera
-    """, _history_bounds(start_date, end_date)).fetchall()
+    """, params).fetchall()
 
     conn.close()
 

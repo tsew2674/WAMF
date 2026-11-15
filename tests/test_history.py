@@ -315,7 +315,7 @@ def test_species_page_without_a_date_shows_all_time_stats(history_client):
     assert re.search(r'First Seen</h3>.*?2026-11-10\s*<br />\s*09:00', page, re.S)
     assert re.search(r'Last Seen</h3>.*?2026-11-14\s*<br />\s*06:00', page, re.S)
     # Two of the three sightings were in the 09:00 hour.
-    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">09:00</div>', page)
+    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">\s*09:00\s*</div>', page)
     # Each detection shows its date, since they span several days.
     assert re.search(r'Seen 2026-11-10\s+at 09:30', page)
     assert 'View all-time stats' not in page
@@ -368,3 +368,115 @@ def test_species_page_all_time_pagination_stays_all_time(
     assert 'Page 2 of 2 (30 detections)' in second
     assert second.count('% confidence') == 5
     assert 'href="/detections/by_scientific_name/Squirrel?page=1"' in second
+
+
+# ---------------------------------------------------------------------------
+# Single-day species page: peak hour and days with no sightings
+# ---------------------------------------------------------------------------
+
+def test_single_day_peak_hour_is_the_busiest_hour_that_day(
+    flask_client, tmp_path, patched_queries, monkeypatch
+):
+    import webui
+    db = str(tmp_path / 'peak.db')
+    _make_db(db, [
+        ('2026-11-10 06:10:00', 'Squirrel', 'feeder'),
+        ('2026-11-10 14:05:00', 'Squirrel', 'feeder'),
+        ('2026-11-10 14:40:00', 'Squirrel', 'feeder'),
+        ('2026-11-10 20:00:00', 'Squirrel', 'feeder'),
+        # Another day's busy hour must not count towards the 10th.
+        ('2026-11-11 08:00:00', 'Squirrel', 'feeder'),
+        ('2026-11-11 08:10:00', 'Squirrel', 'feeder'),
+        ('2026-11-11 08:20:00', 'Squirrel', 'feeder'),
+    ])
+    monkeypatch.setattr(patched_queries, 'DBPATH', db)
+    monkeypatch.setattr(webui, 'queue_metadata_refresh', lambda name: None)
+
+    day = flask_client.get(
+        '/detections/by_scientific_name/Squirrel/2026-11-10'
+    ).get_data(as_text=True)
+    all_time = flask_client.get(
+        '/detections/by_scientific_name/Squirrel'
+    ).get_data(as_text=True)
+
+    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">\s*14:00\s*</div>', day)
+    assert 'Activity By Hour (all time)' in day
+    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">\s*08:00\s*</div>', all_time)
+
+
+def test_single_day_page_for_a_day_without_sightings_does_not_crash(history_client):
+    response = history_client.get(
+        '/detections/by_scientific_name/Cyanocitta%20cristata/2026-11-12'
+    )
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert re.search(
+        r'Detections on 2026-11-12</h3>\s*<div class="wamf-summary-total">0</div>', page
+    )
+    assert re.search(r'Peak Hour</h3>\s*<div class="wamf-summary-total">\s*—\s*</div>', page)
+    assert 'View all-time stats' in page
+
+
+# ---------------------------------------------------------------------------
+# Camera filter
+# ---------------------------------------------------------------------------
+
+def test_earliest_date_can_be_limited_to_one_camera(history_queries):
+    assert history_queries.get_history_earliest_date() == date(2025, 3, 2)
+    assert history_queries.get_history_earliest_date('native_garden') == date(2026, 11, 10)
+    assert history_queries.get_history_earliest_date('Unknown') == date(2026, 11, 14)
+    assert history_queries.get_history_earliest_date('no_such_camera') is None
+
+
+def test_counts_and_species_can_be_limited_to_one_camera(history_queries):
+    start = date(2025, 1, 1)
+
+    assert history_queries.get_history_daily_counts(start, TODAY, 'native_garden') == {
+        date(2026, 11, 10): 2,
+    }
+    assert [
+        (item['common_name'], item['total'])
+        for item in history_queries.get_history_species(start, TODAY, 'bird_feeder')
+    ] == [('American Robin', 2), ('Blue Jay', 1)]
+    # Detections with no camera name are filed under "Unknown".
+    assert history_queries.get_history_daily_counts(start, TODAY, 'Unknown') == {TODAY: 2}
+
+
+def test_history_camera_filter_limits_the_whole_page(history_client):
+    page = history_client.get(
+        '/history?range=7d&camera=native_garden'
+    ).get_data(as_text=True)
+
+    # The range starts at that camera's first detection.
+    assert '10 Nov 2026 – 14 Nov 2026 (5 days)' in page
+    assert page.count('Camera: <strong>native_garden</strong>') == 2
+    assert re.search(r'Total Detections</h3>\s*<div class="wamf-summary-total">\s*2\s*</div>', page)
+    assert 'Squirrel' in page
+    assert 'American Robin' not in page
+    # Range chips keep the camera; the clear link drops it.
+    assert 'href="/history?range=30d&amp;camera=native_garden"' in page
+    assert 'href="/history?range=7d"' in page
+    # Every camera stays listed, with shares of all cameras' detections.
+    assert 'href="/history?range=7d&amp;camera=bird_feeder#species"' in page
+    assert page.count('wamf-camera-selected') == 1
+    assert '20.0% of detections · 1 species' in page
+
+
+def test_history_without_a_camera_links_each_camera_card(history_client):
+    page = history_client.get('/history?range=7d').get_data(as_text=True)
+
+    assert 'href="/history?range=7d&amp;camera=native_garden#species"' in page
+    assert 'href="/history?range=7d&amp;camera=Unknown#species"' in page
+    assert 'wamf-camera-selected' not in page
+    assert 'Show all cameras' not in page
+
+
+def test_history_camera_without_detections_can_still_be_cleared(history_client):
+    response = history_client.get('/history?camera=no_such_camera')
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'No detections in this range yet.' in page
+    assert 'Show all cameras' in page
+    assert 'By Camera' in page

@@ -66,6 +66,12 @@ def show_detections_by_hour(date, hour):
     )
 
 
+def _peak_hour(hourly_rows):
+    """The busiest hour (the earliest one on a tie), or None with no detections."""
+    busiest = max(hourly_rows, key=lambda item: item['total'], default=None)
+    return busiest['hour'] if busiest else None
+
+
 @public_bp.route(
     '/detections/by_scientific_name/<scientific_name>',
     defaults={'date': None, 'end_date': None}
@@ -103,10 +109,7 @@ def show_detections_by_scientific_name(scientific_name, date, end_date):
             page,
             per_page
         )
-        species_stats['peak_hour'] = max(
-            species_activity,
-            key=lambda item: item['total']
-        )['hour']
+        species_stats['peak_hour'] = _peak_hour(species_activity)
     else:
         total_records = (
             webui.get_detection_count_for_scientific_name_and_date(
@@ -120,7 +123,12 @@ def show_detections_by_scientific_name(scientific_name, date, end_date):
             page,
             per_page
         )
-        species_stats = webui.get_species_stats_for_date(scientific_name, date)
+        species_stats = dict(
+            webui.get_species_stats_for_date(scientific_name, date)
+        )
+        species_stats['peak_hour'] = _peak_hour(
+            webui.get_species_activity_by_hour_for_date(scientific_name, date)
+        )
 
     total_pages = (
         total_records + per_page - 1
@@ -226,14 +234,14 @@ def history():
     import webui
 
     today = datetime.now().date()
-    earliest = webui.get_earliest_detection_date()
+    camera = (request.args.get('camera') or '').strip() or None
     range_key, start, end = resolve_range(
         request.args.get('range'),
         today,
-        datetime.strptime(earliest, '%Y-%m-%d').date() if earliest else None,
+        webui.get_history_earliest_date(camera),
     )
 
-    daily_counts = webui.get_history_daily_counts(start, end)
+    daily_counts = webui.get_history_daily_counts(start, end, camera)
     total_detections = sum(daily_counts.values())
     span_days = (end - start).days + 1
     busiest_day = max(
@@ -242,7 +250,7 @@ def history():
         default=None
     )
 
-    species = webui.get_history_species(start, end)
+    species = webui.get_history_species(start, end, camera)
     top_species_total = species[0]['total'] if species else 0
     for item in species:
         first_seen = datetime.strptime(item['first_seen'][:10], '%Y-%m-%d')
@@ -252,9 +260,11 @@ def history():
         item['share'] = _percent(item['total'], total_detections)
         item['bar_percent'] = _percent(item['total'], top_species_total)
 
+    # Always every camera, so the filter can be changed or cleared from here.
     cameras = webui.get_history_cameras(start, end)
+    all_cameras_total = sum(item['total'] for item in cameras)
     for item in cameras:
-        item['share'] = _percent(item['total'], total_detections)
+        item['share'] = _percent(item['total'], all_cameras_total)
 
     return render_template(
         'history.html',
@@ -263,6 +273,7 @@ def history():
             for key, label, _days in RANGES
         ],
         range_key=range_key,
+        camera=camera,
         range_start=_display_day(start),
         range_end=_display_day(end),
         span_days=span_days,

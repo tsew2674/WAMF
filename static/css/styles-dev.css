@@ -1411,3 +1411,16 @@ a.wamf-history-bar-group:focus-visible .wamf-history-bar {
 .wamf-species-hero-content .log-filter-btn {
   margin-bottom: 1rem;
 }
+
+.wamf-history-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 0;
+}
+
+.wamf-camera-selected {
+  border-color: #4fc3f7;
+  box-shadow: 0 0 0 1px #4fc3f7;
+}

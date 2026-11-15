@@ -85,9 +85,9 @@ date %} on {{ date }}{% endif %} {% endblock %} {% block content %}
       <h3>First Seen</h3>
 
       <div class="wamf-meta-secondary">
-        {{ species_stats.first_seen[:10] }}
+        {% if species_stats.first_seen %} {{ species_stats.first_seen[:10] }}
         <br />
-        {{ species_stats.first_seen[11:16] }}
+        {{ species_stats.first_seen[11:16] }} {% else %} — {% endif %}
       </div>
     </div>
 
@@ -95,20 +95,25 @@ date %} on {{ date }}{% endif %} {% endblock %} {% block content %}
       <h3>Last Seen</h3>
 
       <div class="wamf-meta-secondary">
-        {{ species_stats.last_seen[:10] }}
+        {% if species_stats.last_seen %} {{ species_stats.last_seen[:10] }}
         <br />
-        {{ species_stats.last_seen[11:16] }}
+        {{ species_stats.last_seen[11:16] }} {% else %} — {% endif %}
       </div>
     </div>
 
     <div class="wamf-summary-card">
       <h3>Peak Hour</h3>
 
-      <div class="wamf-summary-total">{{ species_stats.peak_hour }}:00</div>
+      <div class="wamf-summary-total">
+        {% if species_stats.peak_hour %}{{ species_stats.peak_hour }}:00{% else
+        %}—{% endif %}
+      </div>
     </div>
   </div>
   <div class="wamf-panel">
-    <h2 class="wamf-subheading">Activity By Hour</h2>
+    <h2 class="wamf-subheading">
+      Activity By Hour{% if date %} (all time){% endif %}
+    </h2>
 
     <div class="wamf-activity-chart">
       {% for item in species_activity %} {% set bar_height = (item.total /
